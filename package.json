@@ -1,0 +1,25 @@
+{
+  "name": "jam-graph",
+  "version": "0.0.1",
+  "keywords": [
+    "graph",
+    "data management",
+    "jam-do.com"
+  ],
+  "description": "Light and simple graph data manager",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "author": "Jam-do.com",
+  "license": "MIT",
+  "dependencies": {
+    "@symbiotejs/symbiote": "^1.10.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "module": "./index.js",
+  "exports": "./index.js"
+}
