@@ -1,12 +1,22 @@
 import { UID } from '@symbiotejs/symbiote/utils/UID.js';
 
 export class GNode {
+  /**
+   * 
+   * @param {Partial<GNode>} src 
+   */
   constructor(src = {}) {
+    /** @type {String} */
     this.uid = null;
+    /** @type {String} */
     this.type = src.type || null;
+    /** @type {String} */
     this.subType = src.subType || null;
+    /** @type {String[]} */
     this.connections = src.connections || [];
+    /** @type {*} */
     this.value = src.value || Object.create(null);
+    /** @type {Number} */
     this.timestamp = Date.now();
   }
 }
@@ -20,11 +30,11 @@ export class JamGraph {
 
   /**
    *
-   * @param {GNode} data
+   * @param {GNode} node
    * @param {String} id
    * @returns {String}
    */
-  static create(data, id = null) {
+  static addNode(node, id = null) {
     let uid;
     if (!id) {
       uid = UID.generate();
@@ -33,46 +43,97 @@ export class JamGraph {
       }
     } else {
       if (this.store[id]) {
-        this.__log(`JamGraph: ${id} - already exist`);
+        this.__log(`JamGraph: ${id} - algetNodey exist`);
         return;
       } else {
         uid = id;
       }
     }
-    data.uid = uid;
+    node.uid = uid;
 
-    this.store[uid] = data;
+    this.store[uid] = node;
     return uid;
   }
 
+  /** 
+   * @param {*} data 
+   * @param {String} type
+   * @param {String} subType
+   */
+  static addData(data, type, subType) {
+    let node = new GNode({
+      value: data,
+      type,
+      subType,
+    });
+    return this.addNode(node);
+  }
 
   /**
    *
    * @param {String} id
    * @returns {GNode}
    */
-  static read(id) {
+  static getNode(id) {
     return this.store[id];
   }
 
   /**
    *
+   * @param {String[]} idArr
+   * @returns {GNode[]}
+   */
+  static getNodes(idArr) {
+    return idArr.map((id) => {
+      return this.getNode(id);
+    });
+  }
+
+  /**
+   *
    * @param {String} id
-   * @param {*} data
+   */
+  static getValue(id) {
+    return this.getNode(id).value;
+  }
+
+  /**
+   *
+   * @param {String[]} idArr
+   */
+  static getValues(idArr) {
+    return this.getNodes(idArr).map((node) => {
+      return node.value;
+    });
+  }
+
+  /**
+   *
+   * @param {String} id
+   * @param {*} newData
    * @param {*} dispatcher
    */
-  static update(id, data, dispatcher = null) {
-    let node = this.read(id);
+  static update(id, newData, dispatcher = null) {
+    let node = this.getNode(id);
     if (!node) {
       this.__log('JamGraph: unable to update node: ' + id);
       return;
     }
     node.timestamp = Date.now();
-    Object.assign(node.value, data);
+    let primitives = [
+      String,
+      Number,
+      Symbol,
+    ];
+    if (primitives.includes(node.value.constructor)) {
+      node.value = newData;
+    } else {
+      Object.assign(node.value, newData);
+    }
     node.connections.forEach((uid) => {
-      let connection = this.read(uid);
+      let connection = this.getNode(uid);
       if (connection.value !== dispatcher) {
-        connection.value.update && connection.value.update(data);
+        connection.value.update && connection.value.update(newData);
       }
     });
   }
@@ -85,7 +146,7 @@ export class JamGraph {
    * @param {*} dispatcher
    */
   static setProperty(id, propertyName, propertyValue, dispatcher = null) {
-    let node = this.read(id);
+    let node = this.getNode(id);
     if (!node) {
       this.__log('JamGraph: unable to update node: ' + id);
       return;
@@ -93,7 +154,7 @@ export class JamGraph {
     node.timestamp = Date.now();
     node.value[propertyName] = propertyValue;
     node.connections.forEach((uid) => {
-      let connection = this.read(uid);
+      let connection = this.getNode(uid);
       if (connection.value !== dispatcher) {
         let callbackName = propertyName + 'Changed';
         connection.value[callbackName] && connection.value[callbackName](propertyValue);
@@ -105,10 +166,11 @@ export class JamGraph {
    *
    * @param {String} id
    */
-  static delete(id) {
-    let node = this.read(id);
-    node.connections.forEach((con) => {
-      this.disconnect(con.uid, id);
+  static deleteNode(id) {
+    let node = this.getNode(id);
+    node.connections.forEach((conId) => {
+      let conNode = this.getNode(conId);
+      this.disconnect(conNode.uid, id);
     });
     delete this.store[id];
   }
@@ -118,14 +180,14 @@ export class JamGraph {
    * @param {String} id
    * @param {String} hardId
    */
-  static clone(id, hardId = null) {
-    let node = this.read(id);
+  static cloneNode(id, hardId = null) {
+    let node = this.getNode(id);
     if (!node) {
       this.__log('JamGraph: unable to clone node: ' + id);
       return;
     }
     node.timestamp = Date.now();
-    let newId = this.create(node, hardId);
+    let newId = this.addNode(node, hardId);
     return newId;
   }
 
@@ -135,8 +197,8 @@ export class JamGraph {
    * @param {String} conId
    */
   static connect(id, conId) {
-    let node = this.read(id);
-    let conNode = this.read(conId);
+    let node = this.getNode(id);
+    let conNode = this.getNode(conId);
     if (node && conNode) {
       let concatArr = [...node.connections, conId];
       let uniqsSet = new Set(concatArr);
@@ -153,8 +215,8 @@ export class JamGraph {
    * @param {String} conId
    */
   static connectDuplex(id, conId) {
-    let node = this.read(id);
-    let conNode = this.read(conId);
+    let node = this.getNode(id);
+    let conNode = this.getNode(conId);
     if (node && conNode) {
       let concatArr = [...node.connections, conId];
       let uniqsSet = new Set(concatArr);
@@ -176,7 +238,7 @@ export class JamGraph {
    * @param {String} connectionId
    */
   static disconnect(nodeId, connectionId) {
-    let node = this.read(nodeId);
+    let node = this.getNode(nodeId);
     if (node) {
       let set = new Set(node.connections);
       set.delete(connectionId);
@@ -201,7 +263,7 @@ export class JamGraph {
     let result = [];
     this.keys.forEach((id) => {
       let str = '';
-      let node = this.read(id);
+      let node = this.getNode(id);
       if (fieldName && node.value[fieldName]) {
         str = JSON.stringify(node.value[fieldName]);
       } else if (node.type !== 'html-element') {
@@ -226,7 +288,7 @@ export class JamGraph {
     let byTypeIdArr = this.getByType(type);
     byTypeIdArr.forEach((id) => {
       let str = '';
-      let node = this.read(id);
+      let node = this.getNode(id);
       if (fieldName && node.value[fieldName]) {
         str = JSON.stringify(node.value[fieldName]);
       } else if (type === 'html-element') {
@@ -253,10 +315,10 @@ export class JamGraph {
    * @returns {Object}
    */
   static getConnectionsByType(id) {
-    let node = this.read(id);
+    let node = this.getNode(id);
     let result = Object.create(null);
     node.connections.forEach((uid) => {
-      let connectedNode = this.read(uid);
+      let connectedNode = this.getNode(uid);
       if (result[connectedNode.type]) {
         result[connectedNode.type].push(uid);
       } else {
@@ -272,10 +334,10 @@ export class JamGraph {
    * @returns {Object}
    */
   static getConnectionsBySubType(id) {
-    let node = this.read(id);
+    let node = this.getNode(id);
     let result = Object.create(null);
     node.connections.forEach((uid) => {
-      let connectedNode = this.read(uid);
+      let connectedNode = this.getNode(uid);
       if (connectedNode.subType) {
         if (result[connectedNode.subType]) {
           result[connectedNode.subType].push(uid);
@@ -295,7 +357,7 @@ export class JamGraph {
   static getByType(type) {
     let result = [];
     this.keys.forEach((id) => {
-      if (this.read(id).type === type) {
+      if (this.getNode(id).type === type) {
         result.push(id);
       }
     });
@@ -310,7 +372,7 @@ export class JamGraph {
   static getBySubType(subType) {
     let result = [];
     this.keys.forEach((id) => {
-      if (this.read(id).subType === subType) {
+      if (this.getNode(id).subType === subType) {
         result.push(id);
       }
     });
@@ -324,7 +386,7 @@ export class JamGraph {
   static removeNodesByType(type) {
     let typeArr = this.getByType(type);
     typeArr.forEach((id) => {
-      let connections = this.read(id).connections;
+      let connections = this.getNode(id).connections;
       connections.forEach((connectionId) => {
         this.disconnect(connectionId, id);
       });
@@ -339,7 +401,7 @@ export class JamGraph {
   static removeNodesBySubType(subType) {
     let subTypeArr = this.getBySubType(subType);
     subTypeArr.forEach((id) => {
-      let connections = this.read(id).connections;
+      let connections = this.getNode(id).connections;
       connections.forEach((connectionId) => {
         this.disconnect(connectionId, id);
       });
