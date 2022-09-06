@@ -1,5 +1,8 @@
 import { UID } from '@symbiotejs/symbiote/utils/UID.js';
 
+function log(msg) {
+  console.warn('JamGraph: ' + msg);
+}
 export class GNode {
   /**
    * 
@@ -9,13 +12,13 @@ export class GNode {
     /** @type {String} */
     this.uid = null;
     /** @type {String} */
-    this.type = src.type || null;
-    /** @type {String} */
-    this.subType = src.subType || null;
+    this.type = src.type || 'NONE';
     /** @type {String[]} */
-    this.connections = src.connections || [];
+    this.links = src.links || [];
     /** @type {*} */
     this.value = src.value || Object.create(null);
+    /** @type {Boolean} */
+    this.serializable = true;
     /** @type {Number} */
     this.timestamp = Date.now();
   }
@@ -23,10 +26,20 @@ export class GNode {
 
 export class JamGraph {
 
-  /** @private */
-  static __log(msg) {
-    console.warn(msg);
-  }
+  /** @type {Object<string, GNode>} */
+  static store = Object.create(null);
+
+  /** 
+   * @private 
+   * @type {Map<Function,number>}
+   */
+  static __timeoutsMap = new Map();
+
+  /** 
+   * @private
+   * @type {Object<string,Set<Function>>}
+   */
+  static __cbMap = Object.create(null);
 
   /**
    *
@@ -43,7 +56,7 @@ export class JamGraph {
       }
     } else {
       if (this.store[id]) {
-        this.__log(`JamGraph: ${id} - algetNodey exist`);
+        log(`${id} - already exist`);
         return;
       } else {
         uid = id;
@@ -52,21 +65,22 @@ export class JamGraph {
     node.uid = uid;
 
     this.store[uid] = node;
+    node.type && this.notify(node.type);
     return uid;
   }
 
   /** 
    * @param {*} data 
    * @param {String} type
-   * @param {String} subType
    */
-  static addData(data, type, subType) {
+  static addData(data, type) {
     let node = new GNode({
       value: data,
       type,
-      subType,
     });
-    return this.addNode(node);
+    let nodeId = this.addNode(node);
+    this.notify(node.type);
+    return nodeId;
   }
 
   /**
@@ -116,7 +130,7 @@ export class JamGraph {
   static update(id, newData, dispatcher = null) {
     let node = this.getNode(id);
     if (!node) {
-      this.__log('JamGraph: unable to update node: ' + id);
+      log('unable to update node: ' + id);
       return;
     }
     node.timestamp = Date.now();
@@ -130,10 +144,10 @@ export class JamGraph {
     } else {
       Object.assign(node.value, newData);
     }
-    node.connections.forEach((uid) => {
-      let connection = this.getNode(uid);
-      if (connection.value !== dispatcher) {
-        connection.value.update && connection.value.update(newData);
+    node.links.forEach((uid) => {
+      let linked = this.getNode(uid);
+      if (linked.value !== dispatcher) {
+        linked.value?.update(newData);
       }
     });
   }
@@ -148,16 +162,16 @@ export class JamGraph {
   static setProperty(id, propertyName, propertyValue, dispatcher = null) {
     let node = this.getNode(id);
     if (!node) {
-      this.__log('JamGraph: unable to update node: ' + id);
+      log('unable to set property. Node is not found: ' + id);
       return;
     }
     node.timestamp = Date.now();
     node.value[propertyName] = propertyValue;
-    node.connections.forEach((uid) => {
-      let connection = this.getNode(uid);
-      if (connection.value !== dispatcher) {
+    node.links.forEach((uid) => {
+      let link = this.getNode(uid);
+      if (link.value !== dispatcher) {
         let callbackName = propertyName + 'Changed';
-        connection.value[callbackName] && connection.value[callbackName](propertyValue);
+        link.value[callbackName] && link.value[callbackName](propertyValue);
       }
     });
   }
@@ -168,11 +182,12 @@ export class JamGraph {
    */
   static deleteNode(id) {
     let node = this.getNode(id);
-    node.connections.forEach((conId) => {
+    node.links.forEach((conId) => {
       let conNode = this.getNode(conId);
-      this.disconnect(conNode.uid, id);
+      this.unlink(conNode.uid, id);
     });
     delete this.store[id];
+    this.notify(node.type);
   }
 
   /**
@@ -183,11 +198,12 @@ export class JamGraph {
   static cloneNode(id, hardId = null) {
     let node = this.getNode(id);
     if (!node) {
-      this.__log('JamGraph: unable to clone node: ' + id);
+      log('unable to clone node: ' + id);
       return;
     }
     node.timestamp = Date.now();
     let newId = this.addNode(node, hardId);
+    this.notify(node.type);
     return newId;
   }
 
@@ -196,16 +212,16 @@ export class JamGraph {
    * @param {String} id
    * @param {String} conId
    */
-  static connect(id, conId) {
+  static link(id, conId) {
     let node = this.getNode(id);
     let conNode = this.getNode(conId);
     if (node && conNode) {
-      let concatArr = [...node.connections, conId];
+      let concatArr = [...node.links, conId];
       let uniqsSet = new Set(concatArr);
-      node.connections = [...uniqsSet];
+      node.links = [...uniqsSet];
       conNode.value.update && conNode.value.update(node.value);
     } else {
-      this.__log(`JamGraph: Could not connect ${id} & ${conId}`);
+      log(`could not link ${id} & ${conId}`);
     }
   }
 
@@ -214,35 +230,35 @@ export class JamGraph {
    * @param {String} id
    * @param {String} conId
    */
-  static connectDuplex(id, conId) {
+  static linkDuplex(id, conId) {
     let node = this.getNode(id);
     let conNode = this.getNode(conId);
     if (node && conNode) {
-      let concatArr = [...node.connections, conId];
+      let concatArr = [...node.links, conId];
       let uniqsSet = new Set(concatArr);
-      node.connections = [...uniqsSet];
+      node.links = [...uniqsSet];
 
-      let conConcatArr = [...conNode.connections, id];
+      let conConcatArr = [...conNode.links, id];
       let conUniqSet = new Set(conConcatArr);
-      conNode.connections = [...conUniqSet];
+      conNode.links = [...conUniqSet];
       conNode.value.update && conNode.value.update(node.value);
       node.value.update && node.value.update(conNode.value);
     } else {
-      this.__log(`GraphStorage: Could not connect ${id} & ${conId}`);
+      log(`could not link ${id} & ${conId}`);
     }
   }
 
   /**
    *
    * @param {String} nodeId
-   * @param {String} connectionId
+   * @param {String} linkId
    */
-  static disconnect(nodeId, connectionId) {
+  static unlink(nodeId, linkId) {
     let node = this.getNode(nodeId);
     if (node) {
-      let set = new Set(node.connections);
-      set.delete(connectionId);
-      node.connections = [...set];
+      let set = new Set(node.links);
+      set.delete(linkId);
+      node.links = [...set];
     }
   }
 
@@ -266,7 +282,7 @@ export class JamGraph {
       let node = this.getNode(id);
       if (fieldName && node.value[fieldName]) {
         str = JSON.stringify(node.value[fieldName]);
-      } else if (node.type !== 'html-element') {
+      } else if (node.serializable) {
         str = JSON.stringify(node.value);
       }
       if (str.includes(query)) {
@@ -291,7 +307,7 @@ export class JamGraph {
       let node = this.getNode(id);
       if (fieldName && node.value[fieldName]) {
         str = JSON.stringify(node.value[fieldName]);
-      } else if (type === 'html-element') {
+      } else if (!node.serializable) {
         let cleanObj = {};
         for (let prop in node.value) {
           if (typeof node.value[prop] === 'string') {
@@ -317,33 +333,12 @@ export class JamGraph {
   static getConnectionsByType(id) {
     let node = this.getNode(id);
     let result = Object.create(null);
-    node.connections.forEach((uid) => {
-      let connectedNode = this.getNode(uid);
-      if (result[connectedNode.type]) {
-        result[connectedNode.type].push(uid);
+    node.links.forEach((uid) => {
+      let linkedNode = this.getNode(uid);
+      if (result[linkedNode.type]) {
+        result[linkedNode.type].push(uid);
       } else {
-        result[connectedNode.type] = [uid];
-      }
-    });
-    return result;
-  }
-
-  /**
-   *
-   * @param {String} id
-   * @returns {Object}
-   */
-  static getConnectionsBySubType(id) {
-    let node = this.getNode(id);
-    let result = Object.create(null);
-    node.connections.forEach((uid) => {
-      let connectedNode = this.getNode(uid);
-      if (connectedNode.subType) {
-        if (result[connectedNode.subType]) {
-          result[connectedNode.subType].push(uid);
-        } else {
-          result[connectedNode.subType] = [uid];
-        }
+        result[linkedNode.type] = [uid];
       }
     });
     return result;
@@ -366,47 +361,91 @@ export class JamGraph {
 
   /**
    *
-   * @param {String} subType
-   * @returns {String[]}
-   */
-  static getBySubType(subType) {
-    let result = [];
-    this.keys.forEach((id) => {
-      if (this.getNode(id).subType === subType) {
-        result.push(id);
-      }
-    });
-    return result;
-  }
-
-  /**
-   *
    * @param {String} type
    */
   static removeNodesByType(type) {
     let typeArr = this.getByType(type);
     typeArr.forEach((id) => {
-      let connections = this.getNode(id).connections;
-      connections.forEach((connectionId) => {
-        this.disconnect(connectionId, id);
+      let links = this.getNode(id).links;
+      links.forEach((linkId) => {
+        this.unlink(linkId, id);
       });
       delete this.store[id];
     });
   }
 
   /**
-   *
-   * @param {String} subType
+   * 
+   * @param {String} type 
+   * @param {(list:String[]) => void} callback
+   * @param {Boolean} [init]
+   * @returns 
    */
-  static removeNodesBySubType(subType) {
-    let subTypeArr = this.getBySubType(subType);
-    subTypeArr.forEach((id) => {
-      let connections = this.getNode(id).connections;
-      connections.forEach((connectionId) => {
-        this.disconnect(connectionId, id);
-      });
-      delete this.store[id];
+  static subscribeOnType(type, callback, init = true) {
+    if (!this.__cbMap[type]) {
+      this.__cbMap[type] = new Set();
+    }
+    this.__cbMap[type].add(callback);
+    if (init) {
+      this.debounce(callback, [this.getByType(type)]);
+    }
+    return {
+      remove: () => {
+        this.__cbMap[type].delete(callback);
+        if (!this.__cbMap[type].size) {
+          delete this.__cbMap[type];
+        }
+      },
+    };
+  }
+
+  /**
+   * 
+   * @param {Function} callback 
+   * @param  {...any} args 
+   */
+  static debounce(callback, ...args) {
+    let timeout = this.__timeoutsMap.get(callback);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    this.__timeoutsMap.set(callback, setTimeout(() => {
+      callback(...args);
+    }));
+  }
+
+  /**
+   * 
+   * @returns {String[]}
+   */
+  static getTypes() {
+    let typeList = new Set();
+    this.keys.forEach((id) => {
+      let node = this.getNode(id);
+      typeList.add(node.type);
     });
+    return [...typeList];
+  }
+
+  /**
+   * 
+   * @param {String} type 
+   */
+  static notify(type) {
+    this.__cbMap[type].forEach((cb) => {
+      this.debounce(cb, [this.getByType(type)]);
+    });
+  }
+
+  static get serializedStore() {
+    let serialized = {};
+    this.keys.forEach((id) => {
+      let node = this.getNode(id);
+      if (node.serializable) {
+        serialized[id] = node;
+      }
+    });
+    return serialized;
   }
 
   static clearStore() {
@@ -414,5 +453,3 @@ export class JamGraph {
   }
 
 }
-
-JamGraph.store = Object.create(null);
