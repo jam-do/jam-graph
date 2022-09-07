@@ -1,20 +1,20 @@
 import { UID } from '@symbiotejs/symbiote/utils/UID.js';
 
 function log(msg) {
-  console.warn('JamGraph: ' + msg);
+  console.warn('jam-graph: ' + msg);
 }
-export class GNode {
+export class Vertex {
   /**
    * 
-   * @param {Partial<GNode>} src 
+   * @param {Partial<Vertex>} src 
    */
   constructor(src = {}) {
     /** @type {String} */
     this.uid = null;
     /** @type {String} */
-    this.type = src.type || 'NONE';
+    this.label = src.label || 'UNLABELED';
     /** @type {String[]} */
-    this.links = src.links || [];
+    this.edges = src.edges || [];
     /** @type {*} */
     this.value = src.value || Object.create(null);
     /** @type {Boolean} */
@@ -24,30 +24,30 @@ export class GNode {
   }
 }
 
-export class JamGraph {
+export class Cluster {
 
-  /** @type {Object<string, GNode>} */
-  static store = Object.create(null);
+  /** @type {Object<string, Vertex>} */
+  store = Object.create(null);
 
   /** 
    * @private 
    * @type {Map<Function,number>}
    */
-  static __timeoutsMap = new Map();
+  __timeoutsMap = new Map();
 
   /** 
    * @private
    * @type {Object<string,Set<Function>>}
    */
-  static __cbMap = Object.create(null);
+  __cbMap = Object.create(null);
 
   /**
    *
-   * @param {GNode} node
+   * @param {Vertex} vtx
    * @param {String} id
    * @returns {String}
    */
-  static addNode(node, id = null) {
+  addVtx(vtx, id = null) {
     let uid;
     if (!id) {
       uid = UID.generate();
@@ -62,44 +62,44 @@ export class JamGraph {
         uid = id;
       }
     }
-    node.uid = uid;
+    vtx.uid = uid;
 
-    this.store[uid] = node;
-    node.type && this.notify(node.type);
+    this.store[uid] = vtx;
+    vtx.label && this.notify(vtx.label);
     return uid;
   }
 
   /** 
    * @param {*} data 
-   * @param {String} type
+   * @param {String} label
    */
-  static addData(data, type) {
-    let node = new GNode({
+  addValue(data, label) {
+    let vtx = new Vertex({
       value: data,
-      type,
+      label,
     });
-    let nodeId = this.addNode(node);
-    this.notify(node.type);
-    return nodeId;
+    let vtxId = this.addVtx(vtx);
+    this.notify(vtx.label);
+    return vtxId;
   }
 
   /**
    *
    * @param {String} id
-   * @returns {GNode}
+   * @returns {Vertex}
    */
-  static getNode(id) {
+  getVtx(id) {
     return this.store[id];
   }
 
   /**
    *
    * @param {String[]} idArr
-   * @returns {GNode[]}
+   * @returns {Vertex[]}
    */
-  static getNodes(idArr) {
+  getVtxList(idArr) {
     return idArr.map((id) => {
-      return this.getNode(id);
+      return this.getVtx(id);
     });
   }
 
@@ -107,17 +107,17 @@ export class JamGraph {
    *
    * @param {String} id
    */
-  static getValue(id) {
-    return this.getNode(id).value;
+  getValue(id) {
+    return this.getVtx(id).value;
   }
 
   /**
    *
    * @param {String[]} idArr
    */
-  static getValues(idArr) {
-    return this.getNodes(idArr).map((node) => {
-      return node.value;
+  getValueList(idArr) {
+    return this.getVtxList(idArr).map((vtx) => {
+      return vtx.value;
     });
   }
 
@@ -127,25 +127,25 @@ export class JamGraph {
    * @param {*} newData
    * @param {*} dispatcher
    */
-  static update(id, newData, dispatcher = null) {
-    let node = this.getNode(id);
-    if (!node) {
-      log('unable to update node: ' + id);
+  update(id, newData, dispatcher = null) {
+    let vtx = this.getVtx(id);
+    if (!vtx) {
+      log('unable to update vertex: ' + id);
       return;
     }
-    node.timestamp = Date.now();
+    vtx.timestamp = Date.now();
     let primitives = [
       String,
       Number,
       Symbol,
     ];
-    if (primitives.includes(node.value.constructor)) {
-      node.value = newData;
+    if (primitives.includes(vtx.value.constructor)) {
+      vtx.value = newData;
     } else {
-      Object.assign(node.value, newData);
+      Object.assign(vtx.value, newData);
     }
-    node.links.forEach((uid) => {
-      let linked = this.getNode(uid);
+    vtx.edges.forEach((uid) => {
+      let linked = this.getVtx(uid);
       if (linked.value !== dispatcher) {
         linked.value?.update(newData);
       }
@@ -159,16 +159,16 @@ export class JamGraph {
    * @param {*} propertyValue
    * @param {*} dispatcher
    */
-  static setProperty(id, propertyName, propertyValue, dispatcher = null) {
-    let node = this.getNode(id);
-    if (!node) {
-      log('unable to set property. Node is not found: ' + id);
+  setProperty(id, propertyName, propertyValue, dispatcher = null) {
+    let vtx = this.getVtx(id);
+    if (!vtx) {
+      log('unable to set property. Vertex is not found: ' + id);
       return;
     }
-    node.timestamp = Date.now();
-    node.value[propertyName] = propertyValue;
-    node.links.forEach((uid) => {
-      let link = this.getNode(uid);
+    vtx.timestamp = Date.now();
+    vtx.value[propertyName] = propertyValue;
+    vtx.edges.forEach((uid) => {
+      let link = this.getVtx(uid);
       if (link.value !== dispatcher) {
         let callbackName = propertyName + 'Changed';
         link.value[callbackName] && link.value[callbackName](propertyValue);
@@ -180,14 +180,14 @@ export class JamGraph {
    *
    * @param {String} id
    */
-  static deleteNode(id) {
-    let node = this.getNode(id);
-    node.links.forEach((conId) => {
-      let conNode = this.getNode(conId);
-      this.unlink(conNode.uid, id);
+  deleteVtx(id) {
+    let vtx = this.getVtx(id);
+    vtx.edges.forEach((conId) => {
+      let conVtx = this.getVtx(conId);
+      this.unlink(conVtx.uid, id);
     });
     delete this.store[id];
-    this.notify(node.type);
+    this.notify(vtx.label);
   }
 
   /**
@@ -195,15 +195,15 @@ export class JamGraph {
    * @param {String} id
    * @param {String} hardId
    */
-  static cloneNode(id, hardId = null) {
-    let node = this.getNode(id);
-    if (!node) {
-      log('unable to clone node: ' + id);
+  cloneVtx(id, hardId = null) {
+    let vtx = this.getVtx(id);
+    if (!vtx) {
+      log('unable to clone vertex: ' + id);
       return;
     }
-    node.timestamp = Date.now();
-    let newId = this.addNode(node, hardId);
-    this.notify(node.type);
+    vtx.timestamp = Date.now();
+    let newId = this.addVtx(vtx, hardId);
+    this.notify(vtx.label);
     return newId;
   }
 
@@ -212,14 +212,14 @@ export class JamGraph {
    * @param {String} id
    * @param {String} conId
    */
-  static link(id, conId) {
-    let node = this.getNode(id);
-    let conNode = this.getNode(conId);
-    if (node && conNode) {
-      let concatArr = [...node.links, conId];
+  link(id, conId) {
+    let vtx = this.getVtx(id);
+    let conVtx = this.getVtx(conId);
+    if (vtx && conVtx) {
+      let concatArr = [...vtx.edges, conId];
       let uniqsSet = new Set(concatArr);
-      node.links = [...uniqsSet];
-      conNode.value.update && conNode.value.update(node.value);
+      vtx.edges = [...uniqsSet];
+      conVtx.value.update && conVtx.value.update(vtx.value);
     } else {
       log(`could not link ${id} & ${conId}`);
     }
@@ -230,19 +230,19 @@ export class JamGraph {
    * @param {String} id
    * @param {String} conId
    */
-  static linkDuplex(id, conId) {
-    let node = this.getNode(id);
-    let conNode = this.getNode(conId);
-    if (node && conNode) {
-      let concatArr = [...node.links, conId];
+  linkDuplex(id, conId) {
+    let vtx = this.getVtx(id);
+    let conVtx = this.getVtx(conId);
+    if (vtx && conVtx) {
+      let concatArr = [...vtx.edges, conId];
       let uniqsSet = new Set(concatArr);
-      node.links = [...uniqsSet];
+      vtx.edges = [...uniqsSet];
 
-      let conConcatArr = [...conNode.links, id];
+      let conConcatArr = [...conVtx.edges, id];
       let conUniqSet = new Set(conConcatArr);
-      conNode.links = [...conUniqSet];
-      conNode.value.update && conNode.value.update(node.value);
-      node.value.update && node.value.update(conNode.value);
+      conVtx.edges = [...conUniqSet];
+      conVtx.value.update && conVtx.value.update(vtx.value);
+      vtx.value.update && vtx.value.update(conVtx.value);
     } else {
       log(`could not link ${id} & ${conId}`);
     }
@@ -250,22 +250,22 @@ export class JamGraph {
 
   /**
    *
-   * @param {String} nodeId
+   * @param {String} vtxId
    * @param {String} linkId
    */
-  static unlink(nodeId, linkId) {
-    let node = this.getNode(nodeId);
-    if (node) {
-      let set = new Set(node.links);
+  unlink(vtxId, linkId) {
+    let vtx = this.getVtx(vtxId);
+    if (vtx) {
+      let set = new Set(vtx.edges);
       set.delete(linkId);
-      node.links = [...set];
+      vtx.edges = [...set];
     }
   }
 
   /**
    * @returns {String[]}
    */
-  static get keys() {
+  get keys() {
     return Object.keys(this.store);
   }
 
@@ -275,48 +275,15 @@ export class JamGraph {
    * @param {String} fieldName
    * @returns {String[]}
    */
-  static find(query, fieldName = null) {
+  search(query, fieldName = null) {
     let result = [];
     this.keys.forEach((id) => {
       let str = '';
-      let node = this.getNode(id);
-      if (fieldName && node.value[fieldName]) {
-        str = JSON.stringify(node.value[fieldName]);
-      } else if (node.serializable) {
-        str = JSON.stringify(node.value);
-      }
-      if (str.includes(query)) {
-        result.push(id);
-      }
-    });
-    return result;
-  }
-
-  /**
-   *
-   * @param {String} type
-   * @param {String} query
-   * @param {String} fieldName
-   * @returns {String[]}
-   */
-  static findInType(type, query, fieldName = null) {
-    let result = [];
-    let byTypeIdArr = this.getByType(type);
-    byTypeIdArr.forEach((id) => {
-      let str = '';
-      let node = this.getNode(id);
-      if (fieldName && node.value[fieldName]) {
-        str = JSON.stringify(node.value[fieldName]);
-      } else if (!node.serializable) {
-        let cleanObj = {};
-        for (let prop in node.value) {
-          if (typeof node.value[prop] === 'string') {
-            cleanObj[prop] = node.value[prop];
-          }
-        }
-        str = JSON.stringify(cleanObj);
-      } else {
-        str = JSON.stringify(node.value);
+      let vtx = this.getVtx(id);
+      if (fieldName && vtx.value[fieldName]) {
+        str = JSON.stringify(vtx.value[fieldName]);
+      } else if (vtx.serializable) {
+        str = JSON.stringify(vtx.value);
       }
       if (str.includes(query)) {
         result.push(id);
@@ -330,15 +297,15 @@ export class JamGraph {
    * @param {String} id
    * @returns {Object}
    */
-  static getConnectionsByType(id) {
-    let node = this.getNode(id);
+  getEdgesByLabel(id) {
+    let vtx = this.getVtx(id);
     let result = Object.create(null);
-    node.links.forEach((uid) => {
-      let linkedNode = this.getNode(uid);
-      if (result[linkedNode.type]) {
-        result[linkedNode.type].push(uid);
+    vtx.edges.forEach((uid) => {
+      let linkedVtx = this.getVtx(uid);
+      if (result[linkedVtx.label]) {
+        result[linkedVtx.label].push(uid);
       } else {
-        result[linkedNode.type] = [uid];
+        result[linkedVtx.label] = [uid];
       }
     });
     return result;
@@ -346,13 +313,13 @@ export class JamGraph {
 
   /**
    *
-   * @param {String} type
+   * @param {String} label
    * @returns {String[]}
    */
-  static getByType(type) {
+  getLabeledVtxList(label) {
     let result = [];
     this.keys.forEach((id) => {
-      if (this.getNode(id).type === type) {
+      if (this.getVtx(id).label === label) {
         result.push(id);
       }
     });
@@ -361,13 +328,13 @@ export class JamGraph {
 
   /**
    *
-   * @param {String} type
+   * @param {String} label
    */
-  static removeNodesByType(type) {
-    let typeArr = this.getByType(type);
-    typeArr.forEach((id) => {
-      let links = this.getNode(id).links;
-      links.forEach((linkId) => {
+  removeByLabel(label) {
+    let labelArr = this.getLabeledVtxList(label);
+    labelArr.forEach((id) => {
+      let edges = this.getVtx(id).edges;
+      edges.forEach((linkId) => {
         this.unlink(linkId, id);
       });
       delete this.store[id];
@@ -376,24 +343,24 @@ export class JamGraph {
 
   /**
    * 
-   * @param {String} type 
+   * @param {String} label 
    * @param {(list:String[]) => void} callback
    * @param {Boolean} [init]
    * @returns 
    */
-  static subscribeOnType(type, callback, init = true) {
-    if (!this.__cbMap[type]) {
-      this.__cbMap[type] = new Set();
+  subscribeOnLabel(label, callback, init = true) {
+    if (!this.__cbMap[label]) {
+      this.__cbMap[label] = new Set();
     }
-    this.__cbMap[type].add(callback);
+    this.__cbMap[label].add(callback);
     if (init) {
-      this.debounce(callback, [this.getByType(type)]);
+      this.debounce(callback, [this.getLabeledVtxList(label)]);
     }
     return {
       remove: () => {
-        this.__cbMap[type].delete(callback);
-        if (!this.__cbMap[type].size) {
-          delete this.__cbMap[type];
+        this.__cbMap[label].delete(callback);
+        if (!this.__cbMap[label].size) {
+          delete this.__cbMap[label];
         }
       },
     };
@@ -404,7 +371,7 @@ export class JamGraph {
    * @param {Function} callback 
    * @param  {...any} args 
    */
-  static debounce(callback, ...args) {
+  debounce(callback, ...args) {
     let timeout = this.__timeoutsMap.get(callback);
     if (timeout) {
       clearTimeout(timeout);
@@ -418,37 +385,42 @@ export class JamGraph {
    * 
    * @returns {String[]}
    */
-  static getTypes() {
-    let typeList = new Set();
+  getLabels() {
+    let labelList = new Set();
     this.keys.forEach((id) => {
-      let node = this.getNode(id);
-      typeList.add(node.type);
+      let vtx = this.getVtx(id);
+      labelList.add(vtx.label);
     });
-    return [...typeList];
+    return [...labelList];
   }
 
   /**
    * 
-   * @param {String} type 
+   * @param {String} label 
    */
-  static notify(type) {
-    this.__cbMap[type].forEach((cb) => {
-      this.debounce(cb, [this.getByType(type)]);
+  notify(label) {
+    this.__cbMap[label].forEach((cb) => {
+      this.debounce(cb, [this.getLabeledVtxList(label)]);
     });
   }
 
-  static get serializedStore() {
-    let serialized = {};
-    this.keys.forEach((id) => {
-      let node = this.getNode(id);
-      if (node.serializable) {
-        serialized[id] = node;
+  /**
+   * 
+   * @param {(vtx:Vertex) => Boolean} checkFn 
+   * @param {String[]} [inputList] 
+   */
+  filter(checkFn, inputList = null) {
+    let result = [];
+    (inputList || this.keys).forEach((id) => {
+      let vtx = this.getVtx(id);
+      if (checkFn(vtx)) {
+        result.push(id);
       }
     });
-    return serialized;
+    return result;
   }
 
-  static clearStore() {
+  clearStore() {
     this.store = Object.create(null);
   }
 
