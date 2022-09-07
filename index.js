@@ -17,8 +17,6 @@ export class Vertex {
     this.edges = src.edges || [];
     /** @type {*} */
     this.value = src.value || Object.create(null);
-    /** @type {Boolean} */
-    this.serializable = true;
     /** @type {Number} */
     this.timestamp = Date.now();
   }
@@ -65,20 +63,21 @@ export class Cluster {
     vtx.uid = uid;
 
     this.store[uid] = vtx;
-    vtx.label && this.notify(vtx.label);
+    this.notify(vtx.label);
     return uid;
   }
 
   /** 
    * @param {*} data 
    * @param {String} [label]
+   * @param {String} [id]
    */
-  addValue(data, label = '') {
+  addValue(data, label = '', id = null) {
     let vtx = new Vertex({
       value: data,
       label,
     });
-    let vtxId = this.addVtx(vtx);
+    let vtxId = this.addVtx(vtx, id);
     this.notify(vtx.label);
     return vtxId;
   }
@@ -293,7 +292,7 @@ export class Cluster {
       let vtx = this.getVtx(id);
       if (fieldName && vtx.value[fieldName]) {
         str = JSON.stringify(vtx.value[fieldName]);
-      } else if (vtx.serializable) {
+      } else {
         str = JSON.stringify(vtx.value);
       }
       if (str.includes(query)) {
@@ -410,7 +409,7 @@ export class Cluster {
    * @param {String} label 
    */
   notify(label) {
-    this.__cbMap[label].forEach((cb) => {
+    this.__cbMap[label]?.forEach((cb) => {
       this.debounce(cb, [this.getLabeledVtxList(label)]);
     });
   }
@@ -431,8 +430,24 @@ export class Cluster {
     return result;
   }
 
+  getStoreDataJson() {
+    return JSON.stringify(this.store);
+  }
+
   clearStore() {
     this.store = Object.create(null);
+  }
+
+  /**
+   * 
+   * @param {String} json 
+   */
+  initStoreData(json) {
+    let storeData = JSON.parse(json);
+    this.clearStore();
+    for (let id in storeData) {
+      this.addVtx(new Vertex(storeData[id]), id);
+    }
   }
 
 }

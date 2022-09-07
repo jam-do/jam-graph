@@ -2,7 +2,7 @@
 
 ## Super-simple and super-light (~1Kb gzip) graph-data manager
 
-# Usage example
+### Usage example
 
 ```js
 import { Cluster } from 'jam-graph';
