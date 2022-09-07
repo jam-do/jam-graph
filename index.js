@@ -1,4 +1,4 @@
-import { UID } from '@symbiotejs/symbiote/utils/UID.js';
+import { UID } from './node_modules/@symbiotejs/symbiote/utils/UID.js';
 
 function log(msg) {
   console.warn('jam-graph: ' + msg);
@@ -71,9 +71,9 @@ export class Cluster {
 
   /** 
    * @param {*} data 
-   * @param {String} label
+   * @param {String} [label]
    */
-  addValue(data, label) {
+  addValue(data, label = '') {
     let vtx = new Vertex({
       value: data,
       label,
@@ -213,6 +213,10 @@ export class Cluster {
    * @param {String} conId
    */
   link(id, conId) {
+    if (id === conId) {
+      log('cannot link vertex to itself: ' + id);
+      return;
+    }
     let vtx = this.getVtx(id);
     let conVtx = this.getVtx(conId);
     if (vtx && conVtx) {
@@ -220,6 +224,8 @@ export class Cluster {
       let uniqsSet = new Set(concatArr);
       vtx.edges = [...uniqsSet];
       conVtx.value.update && conVtx.value.update(vtx.value);
+      this.notify(vtx.label);
+      this.notify(conVtx.label);
     } else {
       log(`could not link ${id} & ${conId}`);
     }
@@ -231,18 +237,23 @@ export class Cluster {
    * @param {String} conId
    */
   linkDuplex(id, conId) {
+    if (id === conId) {
+      log('cannot link vertex to itself: ' + id);
+      return;
+    }
     let vtx = this.getVtx(id);
     let conVtx = this.getVtx(conId);
     if (vtx && conVtx) {
       let concatArr = [...vtx.edges, conId];
       let uniqsSet = new Set(concatArr);
       vtx.edges = [...uniqsSet];
-
       let conConcatArr = [...conVtx.edges, id];
       let conUniqSet = new Set(conConcatArr);
       conVtx.edges = [...conUniqSet];
       conVtx.value.update && conVtx.value.update(vtx.value);
       vtx.value.update && vtx.value.update(conVtx.value);
+      this.notify(vtx.label);
+      this.notify(conVtx.label);
     } else {
       log(`could not link ${id} & ${conId}`);
     }
@@ -354,7 +365,7 @@ export class Cluster {
     }
     this.__cbMap[label].add(callback);
     if (init) {
-      this.debounce(callback, [this.getLabeledVtxList(label)]);
+      this.notify(label);
     }
     return {
       remove: () => {
@@ -369,9 +380,9 @@ export class Cluster {
   /**
    * 
    * @param {Function} callback 
-   * @param  {...any} args 
+   * @param  {...*} args 
    */
-  debounce(callback, ...args) {
+  debounce(callback, args) {
     let timeout = this.__timeoutsMap.get(callback);
     if (timeout) {
       clearTimeout(timeout);
