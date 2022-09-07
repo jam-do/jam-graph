@@ -1,8 +1,11 @@
 {
   "name": "jam-graph",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "keywords": [
     "graph",
+    "cluster",
+    "vertex",
+    "edge",
     "data management",
     "jam-do.com"
   ],
@@ -14,9 +17,6 @@
   },
   "author": "Jam-do.com",
   "license": "MIT",
-  "dependencies": {
-    "@symbiotejs/symbiote": "^1.10.5"
-  },
   "publishConfig": {
     "access": "public"
   },

@@ -1,8 +1,23 @@
-import { UID } from './node_modules/@symbiotejs/symbiote/utils/UID.js';
-
 function log(msg) {
   console.warn('jam-graph: ' + msg);
 }
+
+const CHARSET = '1234567890QWERTYUIOPASDFGHJKLZXCVBNMqwertyuiopasdfghjklzxcvbnm';
+const CS_LENGTH = CHARSET.length - 1;
+
+/**
+ * 
+ * @param {String} [pattern] any symbols sequence with dashes ('XXXXXXXXX-XXX'). Default dash is used for human readability
+ * @returns {String} output example: v6xYaSk7C-kzZ
+ */
+function UID(pattern = 'XXXXXXXXX-XXX') {
+  let uid = '';
+  for (let i = 0; i < pattern.length; i++) {
+    uid += pattern[i] === '-' ? pattern[i] : CHARSET.charAt(Math.random() * CS_LENGTH);
+  }
+  return uid;
+}
+
 export class Vertex {
   /**
    * 
@@ -48,9 +63,9 @@ export class Cluster {
   addVtx(vtx, id = null) {
     let uid;
     if (!id) {
-      uid = UID.generate();
+      uid = UID();
       while (this.store[uid]) {
-        uid = UID.generate();
+        uid = UID();
       }
     } else {
       if (this.store[id]) {
