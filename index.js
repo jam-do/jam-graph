@@ -18,6 +18,8 @@ function UID(pattern = 'XXXXXXXXX-XXX') {
   return uid;
 }
 
+const UNLABELED = 'UNLABELED';
+
 export class Vertex {
   /**
    * 
@@ -27,7 +29,7 @@ export class Vertex {
     /** @type {String} */
     this.uid = null;
     /** @type {String} */
-    this.label = src.label || 'UNLABELED';
+    this.label = src.label || UNLABELED;
     /** @type {String[]} */
     this.edges = src.edges || [];
     /** @type {*} */
@@ -54,6 +56,13 @@ export class Cluster {
    */
   __cbMap = Object.create(null);
 
+
+  /**
+   * @private
+   * @type {Set<string>}
+   */
+  __labelSet = new Set();
+
   /**
    *
    * @param {Vertex} vtx
@@ -78,6 +87,7 @@ export class Cluster {
     vtx.uid = uid;
 
     this.store[uid] = vtx;
+    this.__labelSet.add(vtx.label);
     this.notify(vtx.label);
     return uid;
   }
@@ -88,6 +98,9 @@ export class Cluster {
    * @param {String} [id]
    */
   addValue(data, label = '', id = null) {
+    if (!label) {
+      label = data?.constructor.name.toUpperCase() || UNLABELED;
+    }
     let vtx = new Vertex({
       value: data,
       label,
@@ -379,7 +392,7 @@ export class Cluster {
     }
     this.__cbMap[label].add(callback);
     if (init) {
-      this.notify(label);
+      this.hasLabel(label) && this.notify(label);
     }
     return {
       remove: () => {
@@ -411,12 +424,16 @@ export class Cluster {
    * @returns {String[]}
    */
   getLabels() {
-    let labelList = new Set();
-    this.keys.forEach((id) => {
-      let vtx = this.getVtx(id);
-      labelList.add(vtx.label);
-    });
-    return [...labelList];
+    return [...this.__labelSet];
+  }
+
+  /**
+   * 
+   * @param {String} label 
+   * @returns {Boolean}
+   */
+  hasLabel(label) {
+    return this.__labelSet.has(label);
   }
 
   /**
