@@ -94,13 +94,10 @@ export class Cluster {
 
   /** 
    * @param {*} data 
-   * @param {String} [label]
+   * @param {String} label
    * @param {String} [id]
    */
-  addValue(data, label = '', id = null) {
-    if (!label) {
-      label = data?.constructor.name.toUpperCase() || UNLABELED;
-    }
+  addValue(data, label, id = null) {
     let vtx = new Vertex({
       value: data,
       label,
@@ -452,6 +449,7 @@ export class Cluster {
    * @param {String[]} [inputList] 
    */
   filter(checkFn, inputList = null) {
+    /** @type {String[]} */
     let result = [];
     (inputList || this.keys).forEach((id) => {
       let vtx = this.getVtx(id);
